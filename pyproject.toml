@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pipeline-b"
+version = "0.1.0"
+description = "Pipeline B: brain-aligned embeddings from TRIBE v2 (extraction + evaluation)"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "scipy>=1.10",
+    "scikit-learn>=1.3",
+    "pandas>=2.0",
+]
+
+[project.optional-dependencies]
+# Needed only to tap a live TRIBE v2 model.
+extract = ["torch>=2.2", "einops>=0.7"]
+test = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["pipeline_b*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

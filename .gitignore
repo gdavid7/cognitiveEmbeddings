@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+venv/
+
+# Modal run logs / local artifacts
+modal_*.log
+*.npz
+result.json
+e0_result.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# Scratch
+scratchpad/
