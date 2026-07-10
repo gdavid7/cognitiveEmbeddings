@@ -232,16 +232,28 @@ def _e0_verdict(r2, cka):
 # concat->h_enc linear map is well-posed. E0 is an internal-structure test, so
 # contamination is irrelevant here (no ground truth involved).
 CORPUS = [
-    ("bbb", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"),
-    ("ed", "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4"),
+    ("bbb", "https://download.blender.org/peach/bigbuckbunny_movies/BigBuckBunny_320x180.mp4"),
+    ("ed", "https://archive.org/download/ElephantsDream/ed_1024_512kb.mp4"),
 ]
+
+
+def _download(url, path):
+    """Fetch with a browser UA (default urllib UA gets 403'd) + follow redirects."""
+    import urllib.request
+
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=120) as r, open(path, "wb") as f:
+        while True:
+            chunk = r.read(1 << 20)
+            if not chunk:
+                break
+            f.write(chunk)
 
 
 @app.function(image=image, gpu="A10G", timeout=18000,
               volumes={CACHE: cache_vol, HF_CACHE: hf_vol})
 def run_e0_corpus():
     import json
-    import urllib.request
     import numpy as np
     import pandas as pd
     import torch
@@ -301,7 +313,7 @@ def run_e0_corpus():
     for clip_name, url in CORPUS:
         path = f"/tmp/{clip_name}.mp4"
         print(f"downloading {clip_name} ...", flush=True)
-        urllib.request.urlretrieve(url, path)
+        _download(url, path)
         event = {"type": "Video", "filepath": path, "start": 0,
                  "timeline": "default", "subject": "default"}
         events = get_audio_and_text_events(pd.DataFrame([event]), audio_only=True)
