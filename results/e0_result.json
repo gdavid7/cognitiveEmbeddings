@@ -1,0 +1,52 @@
+{
+  "n_rows": 1251,
+  "shapes": {
+    "h_agg": [
+      1251,
+      1152
+    ],
+    "h_proj": [
+      1251,
+      1152
+    ],
+    "h_enc": [
+      1251,
+      1152
+    ],
+    "h_lr": [
+      1251,
+      2048
+    ],
+    "concat_raw": [
+      1251,
+      4864
+    ]
+  },
+  "gate_passed": true,
+  "gate_max_abs_err": 0.0,
+  "corpus": [
+    "bbb",
+    "ed"
+  ],
+  "E0": {
+    "concat_raw->h_enc": {
+      "cka": 0.3919697525925352,
+      "ridge_r2": 0.6810757160186768,
+      "verdict": "PROCEED",
+      "meaning": "TRIBE adds real nonlinear/temporal structure; proceed."
+    },
+    "h_agg->h_enc": {
+      "cka": 0.5398455228420369,
+      "ridge_r2": 0.46222721338272094,
+      "verdict": "LARGE_TRANSFORM",
+      "meaning": "Large transformation; proceed but re-check extraction."
+    },
+    "h_proj->h_enc": {
+      "cka": 0.5402956462099756,
+      "ridge_r2": 0.4513067424297333,
+      "verdict": "LARGE_TRANSFORM",
+      "meaning": "Large transformation; proceed but re-check extraction."
+    },
+    "cka(h_enc,h_lr)": 0.9674939932955166
+  }
+}

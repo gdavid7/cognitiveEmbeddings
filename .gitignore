@@ -9,8 +9,12 @@ venv/
 # Modal run logs / local artifacts
 modal_*.log
 *.npz
-result.json
-e0_result.json
+/result.json
+/e0_result.json
+
+# ...but keep curated result artifacts committed
+!results/
+!results/*.json
 
 # OS / editor
 .DS_Store
