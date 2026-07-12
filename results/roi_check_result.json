@@ -1,0 +1,78 @@
+{
+  "coherent_image_path": false,
+  "per_stimulus": {
+    "face_astronaut": {
+      "top_rois": [
+        "PIT",
+        "LO2",
+        "V8",
+        "V4",
+        "V3CD",
+        "LO1",
+        "FFC",
+        "VVC",
+        "VMV3",
+        "PH",
+        "V3B",
+        "V4t"
+      ],
+      "roi_group_z": {
+        "early_visual": 0.40405669808387756,
+        "ventral_category": 0.8210368156433105,
+        "motion": -0.1811881959438324,
+        "auditory": -1.4763226509094238
+      },
+      "visual_minus_motion": 0.58524489402771,
+      "ventral_minus_motion": 1.002225011587143
+    },
+    "object_coffee": {
+      "top_rois": [
+        "V3CD",
+        "VMV3",
+        "LO1",
+        "PH",
+        "VVC",
+        "V4",
+        "V3B",
+        "IP0",
+        "VMV2",
+        "PHA3",
+        "IPS1",
+        "V8"
+      ],
+      "roi_group_z": {
+        "early_visual": 0.0528101846575737,
+        "ventral_category": 1.2083324193954468,
+        "motion": -0.45348817110061646,
+        "auditory": -1.0541449785232544
+      },
+      "visual_minus_motion": 0.5062983557581902,
+      "ventral_minus_motion": 1.6618205904960632
+    },
+    "object_rocket": {
+      "top_rois": [
+        "VMV3",
+        "V3CD",
+        "VMV2",
+        "V3B",
+        "PHA3",
+        "LO1",
+        "IP0",
+        "PHA2",
+        "VVC",
+        "V7",
+        "PGp",
+        "IPS1"
+      ],
+      "roi_group_z": {
+        "early_visual": 0.030936436727643013,
+        "ventral_category": 1.600925087928772,
+        "motion": 0.47845205664634705,
+        "auditory": -1.4422744512557983
+      },
+      "visual_minus_motion": -0.44751561991870403,
+      "ventral_minus_motion": 1.122473031282425
+    }
+  },
+  "interpretation": "Image path INCOHERENT \u2014 pivot E1 to video similarity ground truth (\u00a75.2)."
+}

@@ -22,7 +22,12 @@ image = (
         "git+https://github.com/facebookresearch/tribev2",
         "scikit-learn>=1.3",
     )
+    # Separate layer so the big tribev2 layer stays cached: ROI atlas needs
+    # nibabel; §5.2 stimuli come from scikit-image's bundled sample photos.
+    .pip_install("nibabel", "scikit-image")
+    .env({"MNE_DATASETS_SAMPLE_PATH": "/mne", "MNE_DATA": "/mne"})
 )
+mne_vol = modal.Volume.from_name("tribe-mne", create_if_missing=True)
 
 # A Volume caches the HF checkpoint + backbone weights across runs so we only
 # download the ~10GB of model assets once.
@@ -404,6 +409,115 @@ def run_e0_corpus():
         json.dump(result, f, indent=2, default=float)
     cache_vol.commit()
     print("\n===== E0 RESULT =====")
+    print(json.dumps(result, indent=2, default=float))
+    return result
+
+
+# --------------------------------------------------------------------------- #
+# §5.2 image-path sanity check: do static-image clips yield coherent brain     #
+# maps (strong occipital/ventral, weak motion)? Gates whether E1 can use image #
+# ground truth (THINGS) or must pivot to video similarity judgments.           #
+# --------------------------------------------------------------------------- #
+ROI_GROUPS = {
+    "early_visual": ["V1", "V2", "V3", "V4"],
+    "ventral_category": ["FFC", "PIT", "VVC", "VMV*", "PHA*", "TF"],
+    "motion": ["MT", "MST", "FST", "V4t", "V3A", "V6", "V7"],
+    "auditory": ["A1", "A4", "A5", "LBelt", "MBelt", "PBelt"],
+}
+
+
+def _static_video(img, path, duration=6, fps=4):
+    """One still image -> a static clip with a faint tone (so the audio path has
+    input). This is the out-of-distribution 'image as video' hack the design
+    flags: V-JEPA2 sees no motion."""
+    import numpy as np
+    import soundfile as sf
+    from moviepy import ImageClip, AudioFileClip
+
+    sr = 16000
+    t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+    sf.write("/tmp/tone.wav", 0.05 * np.sin(2 * np.pi * 220 * t), sr)
+    clip = ImageClip(np.asarray(img), duration=duration).with_fps(fps)
+    clip = clip.with_audio(AudioFileClip("/tmp/tone.wav"))
+    clip.write_videofile(path, fps=fps, audio_codec="aac", logger=None)
+
+
+@app.function(image=image, gpu="A10G", timeout=3600,
+              volumes={CACHE: cache_vol, HF_CACHE: hf_vol, "/mne": mne_vol})
+def run_image_roi_check():
+    import json
+    import numpy as np
+    import pandas as pd
+    import torch
+    from skimage import data as skdata
+    from tribev2 import TribeModel
+    from tribev2.demo_utils import get_audio_and_text_events
+    from tribev2.utils import summarize_by_roi, get_hcp_roi_indices, get_hcp_labels
+
+    xp = TribeModel.from_pretrained("facebook/tribev2", cache_folder=CACHE)
+    model = xp._model
+    model.eval()
+
+    # tribev2's get_topk_rois does np.array(dict_keys) -> 0-d array (bug), so
+    # build the label list ourselves; summarize_by_roi returns values in this
+    # same key order.
+    roi_labels = list(get_hcp_labels(mesh="fsaverage5", combine=False, hemi="both").keys())
+
+    def top_rois(brain_1d, k=12):
+        vals = summarize_by_roi(brain_1d)
+        order = np.argsort(vals)[::-1][:k]
+        return [roi_labels[i] for i in order]
+
+    stimuli = {"face_astronaut": skdata.astronaut(),
+               "object_coffee": skdata.coffee(),
+               "object_rocket": skdata.rocket()}
+
+    # Precompute ROI-group vertex indices once.
+    group_idx = {}
+    for g, rois in ROI_GROUPS.items():
+        idxs = []
+        for r in rois:
+            try:
+                idxs.append(get_hcp_roi_indices(r))
+            except ValueError:
+                pass
+        group_idx[g] = np.concatenate(idxs) if idxs else np.array([], dtype=int)
+
+    out = {}
+    for name, img in stimuli.items():
+        path = f"/tmp/{name}.mp4"
+        _static_video(img, path)
+        events = get_audio_and_text_events(
+            pd.DataFrame([{"type": "Video", "filepath": path, "start": 0,
+                           "timeline": "default", "subject": "default"}]),
+            audio_only=True)
+        preds, segs = xp.predict(events, verbose=False)   # (n_kept, 20484)
+        brain = preds.mean(axis=0)                         # 1D over vertices
+        # z-score across vertices so group means are comparable across stimuli
+        bz = (brain - brain.mean()) / (brain.std() + 1e-8)
+        group_means = {g: float(bz[idx].mean()) if len(idx) else None
+                       for g, idx in group_idx.items()}
+        out[name] = {
+            "top_rois": top_rois(brain, k=12),
+            "roi_group_z": group_means,
+            "visual_minus_motion": (group_means["early_visual"] - group_means["motion"]),
+            "ventral_minus_motion": (group_means["ventral_category"] - group_means["motion"]),
+        }
+        print(name, "top:", out[name]["top_rois"][:6],
+              "| vis-mot:", round(out[name]["visual_minus_motion"], 2), flush=True)
+
+    # Coherent image path => visual & ventral consistently exceed motion.
+    coherent = all(v["visual_minus_motion"] > 0 and v["ventral_minus_motion"] > 0
+                   for v in out.values())
+    result = {"coherent_image_path": bool(coherent), "per_stimulus": out,
+              "interpretation": (
+                  "Image path VIABLE for E1 (static clips drive visual/ventral > "
+                  "motion)." if coherent else
+                  "Image path INCOHERENT — pivot E1 to video similarity ground truth (§5.2).")}
+    with open(f"{CACHE}/roi_check_result.json", "w") as f:
+        json.dump(result, f, indent=2, default=float)
+    cache_vol.commit()
+    print("\n===== ROI CHECK =====")
     print(json.dumps(result, indent=2, default=float))
     return result
 
