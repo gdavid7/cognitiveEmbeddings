@@ -1,0 +1,53 @@
+E3: 235 concepts | animate 104/235 | fine classes [np.str_('noun.animal'), np.str_('noun.artifact'), np.str_('noun.body'), np.str_('noun.food'), np.str_('noun.plant')] on 218 concepts
+
+  h_enc       coarse(animacy) lin=0.810 knn=0.736 | fine(category) lin=0.614 knn=0.531
+  concat_raw  coarse(animacy) lin=0.850 knn=0.672 | fine(category) lin=0.749 knn=0.480
+  h_proj      coarse(animacy) lin=0.825 knn=0.766 | fine(category) lin=0.654 knn=0.538
+  h_agg       coarse(animacy) lin=0.825 knn=0.766 | fine(category) lin=0.654 knn=0.538
+  clip        coarse(animacy) lin=0.913 knn=0.909 | fine(category) lin=0.835 knn=0.863
+
+-- dissociation (h_enc - CLIP, linear, balanced acc) --
+  coarse gap = -0.103  (h_enc < CLIP)
+  fine gap   = -0.221  (h_enc < CLIP)
+
+  P5 coarse-win : FAIL
+  P4 fine-loss  : PASS
+  SIGNATURE (P4 and P5): ABSENT
+
+{
+  "coarse_gap": -0.10334147334147337,
+  "fine_gap": -0.22123444976076553,
+  "signature": false,
+  "acc": {
+    "h_enc": {
+      "coarse_lin": 0.80990638990639,
+      "coarse_knn": 0.7357855107855108,
+      "fine_lin": 0.6136820839978734,
+      "fine_knn": 0.5313184476342372
+    },
+    "concat_raw": {
+      "coarse_lin": 0.8504456654456654,
+      "coarse_knn": 0.6717439967439967,
+      "fine_lin": 0.7490824029771398,
+      "fine_knn": 0.47973631047315257
+    },
+    "h_proj": {
+      "coarse_lin": 0.8254884004884004,
+      "coarse_knn": 0.7657488807488807,
+      "fine_lin": 0.6536342371079213,
+      "fine_knn": 0.5381392876129719
+    },
+    "h_agg": {
+      "coarse_lin": 0.8254884004884004,
+      "coarse_knn": 0.7657488807488807,
+      "fine_lin": 0.6536342371079213,
+      "fine_knn": 0.5381392876129719
+    },
+    "clip": {
+      "coarse_lin": 0.9132478632478633,
+      "coarse_knn": 0.9094017094017094,
+      "fine_lin": 0.8349165337586391,
+      "fine_knn": 0.8628314726209464
+    }
+  }
+}

@@ -26,6 +26,7 @@ image = (
     # nibabel; §5.2 stimuli come from scikit-image's bundled sample photos.
     .pip_install("nibabel", "scikit-image")
     .env({"MNE_DATASETS_SAMPLE_PATH": "/mne", "MNE_DATA": "/mne"})
+    .pip_install("open_clip_torch")  # E3 CLIP reference baseline
 )
 mne_vol = modal.Volume.from_name("tribe-mne", create_if_missing=True)
 
@@ -532,7 +533,7 @@ E1_N = 150  # number of THINGS concepts to sample (seeded)
 
 @app.function(image=image, gpu="A10G", timeout=18000,
               volumes={CACHE: cache_vol, HF_CACHE: hf_vol})
-def run_e1_extract(n=E1_N):
+def run_e1_extract(n=E1_N, indices=None, outname="e1_embeddings.npz"):
     import json
     import numpy as np
     import pandas as pd
@@ -555,9 +556,12 @@ def run_e1_extract(n=E1_N):
     mat = sio.loadmat(f"{CACHE}/things/im.mat")
     images = mat["im"][:, 0]
     words = [w[0] for w in mat["imwords"][:, 0]]
-    rng = np.random.default_rng(0)
-    sel = np.sort(rng.permutation(len(images))[:n])
-    print(f"selected {len(sel)} concepts; low_rank_head={has_lr}", flush=True)
+    if indices is not None:
+        sel = np.sort(np.asarray(indices, dtype=int))
+    else:
+        rng = np.random.default_rng(0)
+        sel = np.sort(rng.permutation(len(images))[:n])
+    print(f"selected {len(sel)} concepts -> {outname}; low_rank_head={has_lr}", flush=True)
 
     # hooks (same taps as E0)
     acts, raw = {}, {}
@@ -639,10 +643,10 @@ def run_e1_extract(n=E1_N):
         h.remove()
 
     emb = {k: np.stack(v) for k, v in out.items() if v}
-    np.savez(f"{CACHE}/e1_embeddings.npz",
+    np.savez(f"{CACHE}/{outname}",
              words=np.array(kept_words), idx=np.array(kept_idx), **emb)
     cache_vol.commit()
-    result = {"n_kept": len(kept_words),
+    result = {"n_kept": len(kept_words), "outname": outname,
               "shapes": {k: list(v.shape) for k, v in emb.items()},
               "words_head": kept_words[:10]}
     with open(f"{CACHE}/e1_extract_result.json", "w") as f:
@@ -650,6 +654,50 @@ def run_e1_extract(n=E1_N):
     cache_vol.commit()
     print("\n===== E1 EXTRACT DONE =====")
     print(json.dumps(result, indent=2))
+    return result
+
+
+@app.function(image=image, gpu="A10G", timeout=3600,
+              volumes={CACHE: cache_vol, HF_CACHE: hf_vol})
+def run_clip_embed(idx=None, words=None, outname="clip_embeddings.npz"):
+    """CLIP embeddings for a given THINGS index set (E3 reference baseline),
+    row-aligned with the TRIBE taps. If idx is None, uses e1_embeddings.npz."""
+    import json
+    import numpy as np
+    import scipy.io as sio
+    import torch
+    import open_clip
+    from PIL import Image
+
+    if idx is None:
+        e1 = np.load(f"{CACHE}/e1_embeddings.npz", allow_pickle=True)
+        idx = e1["idx"]; words = [str(w) for w in e1["words"]]
+    else:
+        idx = np.asarray(idx, dtype=int)
+        words = list(words) if words is not None else [str(i) for i in idx]
+    mat = sio.loadmat(f"{CACHE}/things/im.mat")
+    images = mat["im"][:, 0]
+
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        "ViT-B-32", pretrained="laion2b_s34b_b79k")
+    model = model.eval().cuda()
+
+    feats = []
+    with torch.no_grad():
+        for i in idx:
+            img = Image.fromarray(np.asarray(images[i])).convert("RGB")
+            x = preprocess(img).unsqueeze(0).cuda()
+            f = model.encode_image(x)
+            feats.append(f[0].cpu().numpy())
+    clip = np.stack(feats)
+    np.savez(f"{CACHE}/{outname}", clip=clip,
+             idx=np.array(idx), words=np.array(words))
+    cache_vol.commit()
+    result = {"n": len(clip), "clip_dim": clip.shape[1]}
+    with open(f"{CACHE}/clip_result.json", "w") as f:
+        json.dump(result, f)
+    cache_vol.commit()
+    print("CLIP done:", result)
     return result
 
 
