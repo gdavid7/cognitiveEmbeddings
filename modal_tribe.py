@@ -522,6 +522,137 @@ def run_image_roi_check():
     return result
 
 
+# --------------------------------------------------------------------------- #
+# E1 extraction: THINGS reference images as isolated static clips -> per-image #
+# TRIBE embeddings, for RSA vs human odd-one-out similarity (analysis is done  #
+# locally with pipeline_b). Each image is its OWN clip (no slideshow bleed).   #
+# --------------------------------------------------------------------------- #
+E1_N = 150  # number of THINGS concepts to sample (seeded)
+
+
+@app.function(image=image, gpu="A10G", timeout=18000,
+              volumes={CACHE: cache_vol, HF_CACHE: hf_vol})
+def run_e1_extract(n=E1_N):
+    import json
+    import numpy as np
+    import pandas as pd
+    import scipy.io as sio
+    import torch
+    from einops import rearrange
+    from PIL import Image
+    from moviepy import ImageClip, AudioFileClip
+    import soundfile as sf
+    from tribev2 import TribeModel
+    from tribev2.demo_utils import get_audio_and_text_events
+
+    xp = TribeModel.from_pretrained("facebook/tribev2", cache_folder=CACHE)
+    model = xp._model
+    model.eval()
+    has_lr = hasattr(model, "low_rank_head")
+    n_out_t = model.n_output_timesteps
+
+    # THINGS reference images + concept names (row-aligned with SPoSE)
+    mat = sio.loadmat(f"{CACHE}/things/im.mat")
+    images = mat["im"][:, 0]
+    words = [w[0] for w in mat["imwords"][:, 0]]
+    rng = np.random.default_rng(0)
+    sel = np.sort(rng.permutation(len(images))[:n])
+    print(f"selected {len(sel)} concepts; low_rank_head={has_lr}", flush=True)
+
+    # hooks (same taps as E0)
+    acts, raw = {}, {}
+    handles = [
+        model.encoder.register_forward_pre_hook(lambda m, i: acts.__setitem__("h_proj", i[0].detach())),
+        model.encoder.register_forward_hook(lambda m, i, o: acts.__setitem__("h_enc", o.detach())),
+    ]
+    if hasattr(model, "combiner"):
+        handles.append(model.combiner.register_forward_pre_hook(lambda m, i: acts.__setitem__("h_agg", i[0].detach())))
+    for name, proj in model.projectors.items():
+        handles.append(proj.register_forward_pre_hook(
+            (lambda nm: (lambda m, i: raw.__setitem__(nm, i[0].detach())))(name)))
+    modality_order = sorted(model.projectors.keys())
+
+    def to_tr(h, n):
+        h = h.transpose(1, 2)
+        h = torch.nn.functional.adaptive_avg_pool1d(h.float(), n)
+        return h.transpose(1, 2)
+
+    def make_clip(img, path, duration=3, fps=4):
+        sr = 16000
+        t = np.linspace(0, duration, int(sr * duration), endpoint=False)
+        sf.write("/tmp/tone.wav", 0.05 * np.sin(2 * np.pi * 220 * t), sr)
+        clip = ImageClip(np.asarray(img), duration=duration).with_fps(fps)
+        clip = clip.with_audio(AudioFileClip("/tmp/tone.wav"))
+        clip.write_videofile(path, fps=fps, audio_codec="aac", logger=None)
+
+    taps = ["h_agg", "h_proj", "h_enc", "concat_raw"]
+    out = {k: [] for k in taps}
+    kept_words, kept_idx = [], []
+
+    for count, idx in enumerate(sel):
+        try:
+            # UNIQUE path + timeline per image: the feature extractor caches by
+            # events content, so a shared path/timeline returns the first
+            # image's cached features for every image (the bug that produced
+            # 150 identical embeddings). Unique keys force a fresh extraction.
+            path = f"/tmp/e1_{int(idx)}.mp4"
+            make_clip(images[idx], path)
+            events = get_audio_and_text_events(
+                pd.DataFrame([{"type": "Video", "filepath": path, "start": 0,
+                               "timeline": f"stim{int(idx)}", "subject": "default"}]),
+                audio_only=True)
+            loader = xp.data.get_loaders(events=events, split_to_build="all")["all"]
+            per_tap = {k: [] for k in taps}
+            with torch.inference_mode():
+                for batch in loader:
+                    batch = batch.to(model.device)
+                    acts.clear(); raw.clear()
+                    segs = []
+                    for segment in batch.segments:
+                        for t in np.arange(0, segment.duration - 1e-2, xp.data.TR):
+                            segs.append(segment.copy(offset=t, duration=xp.data.TR))
+                    keep = (np.array([len(s.ns_events) > 0 for s in segs])
+                            if xp.remove_empty_segments else np.ones(len(segs), bool))
+                    _ = model(batch)
+                    for k in ("h_agg", "h_proj", "h_enc"):
+                        if k in acts:
+                            h = rearrange(to_tr(acts[k], n_out_t), "b t d -> (b t) d").cpu().numpy()
+                            per_tap[k].append(h[keep])
+                    present = [m for m in modality_order if m in raw]
+                    if present:
+                        parts = [rearrange(to_tr(raw[m], n_out_t), "b t d -> (b t) d").cpu().numpy()
+                                 for m in present]
+                        per_tap["concat_raw"].append(np.concatenate(parts, axis=1)[keep])
+            # mean-pool over all kept TRs -> one vector per tap for this image
+            if not per_tap["h_enc"]:
+                continue
+            for k in taps:
+                out[k].append(np.concatenate(per_tap[k]).mean(axis=0))
+            kept_words.append(words[idx]); kept_idx.append(int(idx))
+            if count % 25 == 0:
+                print(f"  {count+1}/{len(sel)} done ({words[idx]})", flush=True)
+                cache_vol.commit()
+        except Exception as e:
+            print(f"  SKIP idx {idx} ({words[idx]}): {e}", flush=True)
+
+    for h in handles:
+        h.remove()
+
+    emb = {k: np.stack(v) for k, v in out.items() if v}
+    np.savez(f"{CACHE}/e1_embeddings.npz",
+             words=np.array(kept_words), idx=np.array(kept_idx), **emb)
+    cache_vol.commit()
+    result = {"n_kept": len(kept_words),
+              "shapes": {k: list(v.shape) for k, v in emb.items()},
+              "words_head": kept_words[:10]}
+    with open(f"{CACHE}/e1_extract_result.json", "w") as f:
+        json.dump(result, f, indent=2)
+    cache_vol.commit()
+    print("\n===== E1 EXTRACT DONE =====")
+    print(json.dumps(result, indent=2))
+    return result
+
+
 @app.local_entrypoint()
 def main():
     import json

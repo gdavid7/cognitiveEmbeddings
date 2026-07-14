@@ -1,0 +1,54 @@
+E1: 150 concepts | taps: ['h_agg', 'h_proj', 'h_enc', 'concat_raw']
+
+-- RSA vs human (SPoSE) --
+  h_agg            rho=+0.2120  p=0.0001
+  h_proj           rho=+0.2120  p=0.0001
+  h_enc            rho=+0.2469  p=0.0001
+  concat_raw       rho=+0.0923  p=0.0001
+  random_proj      rho=+0.1802  p=0.0001
+  shuffled_h_enc   rho=-0.0033  p=0.6194
+
+-- P1 paired: h_enc vs concat_raw --
+  Δrho(h_enc - concat_raw) = +0.1883 [+0.1239, +0.2500]  p=0.0004 | h_enc better: True
+
+-- verdict --
+  P1 (h_enc > concat_raw, p<0.01): PASS
+  P2 (h_enc > nulls):                    PASS
+
+{
+  "rsa": {
+    "h_agg": [
+      0.2120284054215256,
+      9.999000099990002e-05
+    ],
+    "h_proj": [
+      0.21202844803725754,
+      9.999000099990002e-05
+    ],
+    "h_enc": [
+      0.24694209660773003,
+      9.999000099990002e-05
+    ],
+    "concat_raw": [
+      0.09231223149299647,
+      9.999000099990002e-05
+    ],
+    "random_proj": [
+      0.18018850216873017,
+      9.999000099990002e-05
+    ],
+    "shuffled_h_enc": [
+      -0.0032877899424759074,
+      0.6194380561943805
+    ]
+  },
+  "paired": {
+    "diff": 0.1883208793342507,
+    "ci_low": 0.12385045143010129,
+    "ci_high": 0.2500090056810756,
+    "p_value": 0.0003999200159968006,
+    "a_better": true
+  },
+  "P1": true,
+  "P2": true
+}
