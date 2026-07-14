@@ -1,142 +1,102 @@
 # Pipeline B — Findings Report
 
 **Brain-aligned embeddings from TRIBE v2**
-Author: David Gershony · Status: core experimental arc complete · Repo: `github.com/gdavid7/cognitiveEmbeddings`
+Author: David Gershony · Repo: `github.com/gdavid7/cognitiveEmbeddings`
+*Revised after internal review (see §Revisions) — the headline magnitude and mechanism changed.*
 
 ---
 
 ## TL;DR
 
-We tapped the internal representation of TRIBE v2 (a brain-encoding model built on four frozen foundation models) and asked whether brain supervision reshapes it into something more human-like than its raw ingredients. Across four preregistered experiments the answer is a qualified **yes, with a clear mechanism**:
+We tapped TRIBE v2's internal representation and asked whether brain supervision reshapes it into something more human-like than its ingredient models. The direction survives scrutiny, but the honest effect is **modest, transformer-carried, and not a fusion result**:
 
-- **The fusion is not cosmetic** (E0): TRIBE's hidden state is not just a rotation of its backbone features.
-- **It is more human-aligned** (E1): its similarity geometry matches human odd-one-out judgments substantially better than the raw backbones (ρ = 0.36 vs 0.13, p < 0.001).
-- **But it is not a better category classifier** (E3): CLIP linearly decodes object categories better at every level.
-- **These reconcile into one trade-off** (E4): going deeper into TRIBE trades linear category separability — especially fine-grained — for alignment with human similarity structure, and this happens gradually, stage by stage.
+- **The hidden state is not a trivial re-mix of the backbones** (E0) — H₀ rejected on video, though the static-image regime where the payoff experiments run is closer to linear (R² 0.80 vs 0.68).
+- **It is more human-aligned than its own inputs and its best backbone** (E1) — but the effect is **~0.05–0.08 in RSA**, not the 0.19 a naive raw-concatenation comparison implied. About half of that naive gap was **dead-modality dilution** (a constant audio tone), and most of the rest is free dimensionality reduction.
+- **The one robust, significant brain-supervision signal is the transformer step** (Δ = +0.059, p = 0.0007). The learned per-modality projection adds ~nothing over a random projection of the de-diluted features.
+- **It is not a stronger category classifier than CLIP** (E3), and the "loses more on fine than coarse" story is **suggestive, not significant** (CIs overlap).
 
-**Headline claim:** *Brain supervision makes TRIBE's embedding geometry more human-like by spending fine-grained category separability, and the trade is visible along the network's internal ladder.*
-
----
-
-## The question
-
-TRIBE v2 fuses Llama-3.2-3B, DINOv2, V-JEPA2, and Wav2Vec2-BERT with a transformer and predicts fMRI. Pipeline B keeps the **transformer's hidden state** as an embedding and tests a falsifiable null:
-
-> **H₀:** the hidden state is ~an affine function of the concatenated backbone features — fusion adds reweighting, not new structure.
-
-If H₀ held, the project would be dead (just concatenate the backbones). Everything hinged on killing or confirming it first.
+**Revised headline claim:** *Brain supervision — specifically the transformer stage — makes TRIBE's (mostly-visual, single-effective-backbone) representation modestly but significantly more aligned with human similarity geometry than its own pre-transformer input; the effect over its best backbone is real but marginal (p ≈ 0.04), and this configuration does not test multimodal fusion.*
 
 ---
 
-## What was built
+## The question and setup
 
-- A tested pure-math evaluation package (`pipeline_b/`): RSA, linear CKA, linear-map R², probing, noise ceiling, retrieval, and the statistics (stimulus-permutation tests, stimulus bootstrap, FDR). **40 unit tests, all passing.**
-- Model-dependent extraction verified against the **real** `facebook/tribev2` checkpoint via a hard reconstruction gate.
-- A Modal harness (cloud A10G GPUs) that stands up the full TRIBE stack, extracts taps, and runs feature extraction — since the model doesn't fit on a laptop.
-- Analysis scripts `analyze_e1.py` / `analyze_e3.py` / `analyze_e4.py`, and a committed preregistration.
+TRIBE v2 fuses Llama-3.2-3B, DINOv2, V-JEPA2, and Wav2Vec2-BERT with a transformer to predict fMRI. Pipeline B keeps the transformer hidden state as an embedding and tests **H₀: the hidden state is ~an affine function of the concatenated backbone features.**
+
+**Configuration caveat (load-bearing):** the payoff experiments (E1/E3/E4) run on THINGS still images shown as *static video*, with the audio track a constant tone and the text/Llama modality zeroed. So effectively the model runs on **the visual backbones only** (DINOv2 + a near-inert V-JEPA2), audio dead, text off. This is **not** a multimodal-fusion configuration.
 
 ---
 
-## Results by experiment
+## Results
 
-### E0 — Kill H₀ (the linearity test)
-*Real corpus: Big Buck Bunny + Elephant's Dream, 1,251 TR rows.*
+### E0 — Kill H₀ (linearity)
+Real video corpus (Big Buck Bunny + Elephant's Dream, 1,251 rows). Reconstruction gate **passed, max|Δ| = 0.0** (extraction verified). `concat_backbone → h_enc`: CKA 0.39, R² 0.68 → **PROCEED**. `CKA(h_enc, h_lr)` = 0.97 → `h_lr` dropped.
+*Spot-check (added in review):* in the **static-image** regime the same map is R² 0.80 / CKA 0.54 — still rejects H₀ (<0.95) but is meaningfully more linear than the video regime. The payoff experiments run where H₀ is *less* strongly rejected.
 
-| Test | Result |
-|---|---|
-| Reconstruction gate (extraction correctness) | **passed, max\|Δ\| = 0.0** |
-| `concat_backbone → h_enc` linear map | CKA 0.39, cross-val R² 0.68 |
-| `CKA(h_enc, h_lr)` | 0.97 |
-
-**Verdict: PROCEED.** Both CKA and R² are far below the H₀ thresholds (>0.95), so TRIBE's fusion is *not* an affine re-mix of its inputs. Bonus: `h_lr` is ~a rotation of `h_enc` (CKA 0.97), so it was dropped as a redundant tap.
-
-### E1 — Behavioral alignment (the payoff)
-*150 THINGS concepts as static clips; RSA vs human SPoSE odd-one-out similarity.*
+### E1 — Behavioral alignment (RSA vs human SPoSE), decomposed
+235 concepts, correlation-distance RSA, stimulus-bootstrap paired tests:
 
 | Representation | RSA vs human |
 |---|---|
-| **`h_enc` (TRIBE output)** | **0.247** |
-| `h_proj` / `h_agg` (projected input) | 0.212 |
-| `concat_raw` (raw backbones) | 0.092 |
-| `random_proj` (control) | 0.180 |
-| `shuffled` (null) | −0.003 (p = 0.62 ✓) |
+| `concat_raw` (raw backbones **with dead audio**) | 0.128 |
+| `random_proj` (random 1152-d, zero learning) | 0.239 ± 0.005 |
+| **`video_only`** (raw visual backbones, tone sliced out) | 0.276 |
+| `h_proj` (learned projection) | 0.272 |
+| **`h_enc`** (transformer output) | **0.330** |
 
-Preregistered **P1** (paired `h_enc` > `concat_backbone`): Δρ = **+0.188** [95% CI +0.124, +0.250], permutation **p = 0.0004 → PASS**. **P2** (beats nulls) **PASS**. On the larger 235-concept set (E4) the gap is even cleaner: 0.36 vs 0.13.
+Paired (all significant unless noted):
+- `h_enc` vs **best backbone** (`video_only`): Δ = **+0.054** [+0.003, +0.103], **p = 0.039** *(marginal)*
+- `h_enc` vs `random_proj`: Δ = +0.078 [+0.020, +0.132], p = 0.012
+- `h_enc` vs `h_proj` (**transformer step**): Δ = +0.059 [+0.025, +0.092], **p = 0.0007**
+- `h_proj` vs `random_proj` (learned projection): **not significant** (Δ ≈ +0.03, p ≈ 0.09)
 
-### E3 — Semantic probing (what got destroyed?)
-*235 concepts (150 + 85 animate-balancing); balanced-accuracy linear probe.*
+**Reading:** `concat_raw`'s low score was ~half **dead-audio dilution** (1,917 of 4,864 dims were a constant tone); de-diluting to `video_only` nearly doubles it. A *random* projection recovers most of the rest. So the naive "h_enc beats raw backbones by 0.19" overstates the learned effect ~3×. `h_enc` still beats the best backbone and a random baseline — but modestly.
 
-| Representation | Coarse (animate/inanimate) | Fine (category) |
+### E3 — Semantic probing vs CLIP (balanced accuracy, 5-fold, with CIs)
+
+| Rep | Coarse (animacy) | Fine (category) |
 |---|---|---|
-| **CLIP** | **0.91** | **0.84** |
-| `concat_raw` | 0.85 | 0.75 |
-| `h_proj` | 0.83 | 0.65 |
-| **`h_enc`** | 0.81 | 0.61 |
+| CLIP | 0.913 [0.890, 0.937] | 0.835 [0.739, 0.930] |
+| `concat_raw` | 0.850 | 0.749 [0.695, 0.803] |
+| `h_proj` | 0.825 | 0.654 [0.577, 0.730] |
+| `h_enc` | 0.810 [0.772, 0.847] | 0.614 [0.538, 0.689] |
 
-Preregistered dissociation (h_enc vs CLIP): coarse gap −0.10 (**P5 FAIL**), fine gap −0.22 (**P4 PASS**) → **signature ABSENT** as strictly defined. CLIP is the stronger category decoder everywhere. **But** h_enc's deficit is ~2× larger on fine than coarse — graded support that brain supervision preferentially sheds fine detail.
+CLIP is the stronger decoder everywhere → preregistered signature **ABSENT**. `h_enc − CLIP`: coarse −0.10 [−0.15, −0.06], fine −0.22 [−0.32, −0.13]. The two CIs **overlap**, so "loses ~2× more on fine than coarse" is **suggestive, not significant**. The transformer's effect on fine decodability (−0.04 [−0.10, +0.02]) includes zero.
 
-### E4 — Stage-wise ablation ladder
-*235 concepts, both metrics up the ladder.*
+### E4 — Stage-wise ladder (revised attribution)
+Human-alignment rises `concat_raw` 0.13 → `video_only`/`h_proj` ~0.27 → `h_enc` 0.33. But once dead-audio dilution is removed, the stages attribute as:
+- **dead-audio de-dilution + dimensionality:** the large `concat_raw → video_only` jump (not a learned brain effect)
+- **learned per-modality projection:** ≈ 0 over de-diluted video (not significant)
+- **transformer:** +0.06, **p = 0.0007** — *the only robust brain-supervision stage*
 
-| Stage | RSA↑human | Coarse | Fine |
-|---|---|---|---|
-| `concat_raw` | 0.133 | 0.850 | 0.749 |
-| `h_agg` (after projection) | 0.287 | 0.825 | 0.654 |
-| `h_proj` (after combiner) | 0.287 | 0.825 | 0.654 |
-| `h_enc` (after transformer) | 0.355 | 0.810 | 0.614 |
-
-Human-alignment gain `concat_raw → h_enc` = **+0.222**, of which **69% is the learned per-modality projection** and **31% is the transformer** (the combiner + positional embedding contributes exactly 0 — it's affine). Meanwhile category decodability *falls* along the same ladder, more for fine than coarse. **The alignment gain and the decodability loss are two ends of one trade-off, shown mechanistically.**
+Category decodability falls along the ladder, more for fine, but (per E3 CIs) not significantly so.
 
 ---
 
 ## The good
+- Extraction **provably correct** (gate at max|Δ| = 0.0) before any analysis.
+- Two silent bugs caught by design tripwires: a cache collision (constant RDM) and a label misalignment (CLIP-at-chance).
+- The reviewable controls were actually run: `random_proj` and best-backbone baselines are **now formally paired-tested**, and the direction (h_enc > backbones > random, transformer significant) **survives**.
+- Reported the E3 prereg failure and the magnitude correction straight.
 
-- **A clean, preregistered positive result** (E0 PROCEED + E1 pass) that meets the design's top success criterion.
-- **A coherent mechanistic story** — E4 unifies the apparent E1/E3 tension into a single stage-by-stage trade-off. That's more compelling than "TRIBE wins at everything," which would smell like a confound.
-- **Extraction is provably correct** — the reconstruction gate matched the model's own output to 0.0 before any analysis ran.
-- **Honest controls worked** — the shuffled null sits at p = 0.62; a random projection is beaten by the learned one; contamination is avoided (THINGS is behavioral, never in TRIBE's fMRI training).
-- **Fully reproducible and cheap** — public data, scripted analyses, ~$16 of a $30 compute budget.
-
-## The bad / limitations
-
-- **Out-of-distribution stimuli.** TRIBE has no still-image path, so THINGS images were shown as frozen "static video." V-JEPA2 sees no motion; the ROI sanity check (§5.2) showed ventral-visual-dominated maps (face → fusiform), so it's usable — but it's a confound, and absolute RSA values (~0.25–0.36) are modest.
-- **Partial model.** The text/Llama modality was zeroed to avoid a fragile transcription dependency and Llama's gated weights. Results describe the **video+audio configuration**, not the full four-modality model. (Adding text can only add transformation, so it wouldn't overturn E0/E1.)
-- **The preregistered E3 signature did not appear.** CLIP beats h_enc on coarse categories too; only the *graded* version of the hypothesis survived. Reported as a partial result, not spun.
-- **Dimensionality confounds one comparison.** `concat_raw` (4,864-d) has more linear-probe capacity than `h_enc` (1,152-d), so "raw beats h_enc on probing" is partly capacity, not information.
-- **"Fine" is basic-level, not instance-level.** One image per concept means true fine-grained (dog-breed-level) discrimination couldn't be tested.
-- **Modest n and a single behavioral ground truth** (SPoSE-derived). No fMRI generalization test yet.
-
-## Bugs caught (validity hygiene)
-
-Two silent errors were caught *because* the pipeline has built-in tripwires, not by luck:
-
-- **Cache collision** — reusing one temp filename made TRIBE's feature cache return the first image's features for all 150. Caught immediately by a **constant RDM** (std = 0), not a plausible-but-wrong number. Fixed with unique paths; verified on a 3-image run before re-spending.
-- **Label misalignment** — `im.mat`'s image order diverges from the concept-name list at index 246, scrambling index-based labels. Caught because **even CLIP fell to chance** on animacy (impossible if aligned). Fixed by labeling per concept name via WordNet.
-
-Both are worth stating: the results survived because wrong answers looked obviously wrong.
+## The bad / what shrank under scrutiny
+- **Magnitude:** the human-alignment effect is ~0.05–0.08 RSA, not the 0.19 first reported. Half of the naive gap was dead-audio dilution; most of the remainder is dimensionality.
+- **Mechanism:** it is the **transformer**, not the "69% projection" the first draft claimed. The learned projection does not significantly beat random.
+- **Best-backbone margin is marginal:** `h_enc` beats `video_only` at only p = 0.039 — would likely not survive strict multiple-comparison correction.
+- **Not fusion:** audio dead, text off, V-JEPA2 near-inert on static frames → effectively a single visual backbone. "Fusion" is unsupported here.
+- **E3 graded claim:** suggestive only (overlapping CIs).
+- **OOD regime:** static images; and H₀ is less strongly rejected there (R² 0.80).
 
 ## Done vs. not done
+**Done:** extraction + gate; contamination control; preregistration; E0, E1, E3, E4; the review controls (random_proj, video-only, static-linearity, E3 CIs); tested analysis package. All committed.
+**Not done:** E2 (needs uncontaminated fMRI); a proper modality-integration test (needs naturalistic audiovisual stimuli — vacuous here); the full four-modality run (text/Llama enabled) and true DINOv2-vs-V-JEPA2 separation; scale-up (more concepts / multiple exemplars for instance-level fine probing); the formal write-up.
 
-**Done**
-- Extraction + reconstruction gate (verified on the real checkpoint)
-- Contamination control and preregistration
-- E0 (linearity / kill H₀)
-- E1 (behavioral RSA — the payoff)
-- E3 (semantic probing vs CLIP)
-- E4 (stage-wise ablation ladder)
-- Tested analysis package, all committed to the repo
-
-**Not done**
-- **E2 (brain predictivity)** — needs sourcing an uncontaminated fMRI dataset; it's a diagnostic, not a headline.
-- **Modality-integration ablation** — our tone-only audio makes it vacuous here; needs naturalistic audiovisual stimuli.
-- **Full four-modality run** (text/Llama enabled).
-- **Scale-up** — more concepts and multiple exemplars per concept (would strengthen E3 and enable instance-level fine probing).
-- **The formal write-up / paper.**
+## Bottom line
+The result **holds in direction but not in magnitude or mechanism as first claimed.** What is defensible: TRIBE's **transformer stage** produces a representation significantly more human-aligned than its pre-transformer input (Δ ≈ 0.06, p < 0.001), and modestly more than its best backbone (Δ ≈ 0.05, p ≈ 0.04). The learned projection and the raw-concatenation comparison were red herrings (dimensionality + dead-modality dilution). This is a real but small brain-supervision effect on a mostly-visual representation — not a fusion result, and not the ~0.19 headline. The cleanest next steps are the full four-modality run on naturalistic video, and E2 on uncontaminated fMRI.
 
 ---
 
-## Bottom line
+## Revisions (after internal review)
+An internal review flagged that the `random_proj` control — never formally paired-tested in the first draft — undercut the mechanism story, that a per-modality (DINOv2-alone) baseline was missing, that "fusion" was unsupported by this configuration, and that the E3 graded claim lacked CIs. All four were correct. This report reflects the added controls (`analyze_rebuttal.py`, `focused_rebuttal.py`; results in `results/rebuttal_result.txt`), which lowered the effect size ~3×, reassigned the mechanism from projection to transformer, dropped the fusion claim, and demoted the E3 graded result to suggestive. The core direction survived formal testing; the overclaims did not.
 
-The two load-bearing experiments landed positive and preregistered, the "failure" (E3) is the kind that makes the story credible, and E4 explains the mechanism. The defensible claim is specific: **brain supervision reshapes TRIBE's embedding toward human similarity geometry by trading away fine-grained category separability — measurably, stage by stage.** The main asterisks are the out-of-distribution image path and the video+audio-only configuration; the natural next steps are a naturalistic-video replication and the full four-modality run.
-
-*Reproducibility: analysis scripts `analyze_e{0,1,3,4}` and `pipeline_b/`; extraction in `modal_tribe.py`; raw result JSON/TXT under `results/`; predictions locked in `preregistration_E1_E3.md`. Compute: Modal A10G, ~$16 total.*
+*Reproducibility: `analyze_e{1,3,4}.py`, `analyze_rebuttal.py`, `focused_rebuttal.py`, `pipeline_b/`; extraction in `modal_tribe.py`; results in `results/`; predictions in `preregistration_E1_E3.md`. Compute: Modal A10G, ~$16.*
