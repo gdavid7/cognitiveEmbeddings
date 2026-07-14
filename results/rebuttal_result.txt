@@ -1,0 +1,53 @@
+=== REBUTTAL ANALYSES (235 concepts) ===
+
+[1] Random-projection decomposition (RSA vs human)
+  concat_raw           0.133
+  random_proj (K=25)   0.247 ± 0.005  [0.235, 0.260]
+  h_proj (learned)     0.287
+  h_enc                0.355
+
+  gain h_enc-concat_raw = +0.222
+    dimensionality (random-concat):   +0.114 (51%)
+    learned projection (h_proj-random):+0.040 (18%)
+    transformer (h_enc-h_proj):        +0.068 (31%)
+  brain-supervision gain over random baseline (h_enc-random) = +0.108
+  paired h_enc vs random_proj                   Δ=+0.095 [+0.039,+0.146] p=0.0012
+  paired h_enc vs h_proj (transformer step)     Δ=+0.068 [+0.035,+0.099] p=0.0008
+  paired h_proj vs random_proj (learned projection) Δ=+0.027 [-0.004,+0.058] p=0.0944
+
+[2] Per-modality baseline (audio = constant tone, sliced by zero variance)
+  constant(audio) dims: 1917 | varying(video) dims: 2947
+  video-only RSA (DINOv2+V-JEPA2): 0.292
+  concat_raw (with dead audio):    0.133
+  h_enc:                           0.355
+  paired h_enc vs video-only: Δ=+0.268 [+0.207,+0.319] p=0.0004
+
+[3] E0-style linearity spot-check, STATIC-image regime
+  concat_raw  -> h_enc:  R²=0.802  CKA=0.535
+  video_only  -> h_enc:  R²=0.802  CKA=0.535
+  (E0 on video was R²=0.68, CKA=0.39 -> PROCEED; compare regimes)
+
+[4] E3 probe balanced-accuracy CIs (5-fold; is fine-deficit > coarse-deficit real?)
+  h_enc       coarse 0.810[0.772,0.847]  fine 0.614[0.538,0.689]
+  h_proj      coarse 0.825[0.784,0.867]  fine 0.654[0.577,0.730]
+  clip        coarse 0.913[0.890,0.937]  fine 0.835[0.739,0.930]
+  concat_raw  coarse 0.850[0.816,0.885]  fine 0.749[0.695,0.803]
+
+  h_enc-CLIP coarse gap -0.103 [-0.151,-0.055]
+  h_enc-CLIP fine   gap -0.221 [-0.317,-0.125]
+  fine-deficit minus coarse-deficit = -0.118  (negative => loses more on fine)
+  transformer effect on fine decode (h_enc-h_proj) = -0.040 [-0.096,+0.016]
+=== metric-consistent (correlation) recompute, 235 concepts ===
+
+point RSA vs human:
+  concat_raw   0.128
+  video_only   0.276
+  random_proj~ 0.239 ± 0.005
+  h_proj       0.272
+  h_enc        0.330
+
+paired (stimulus bootstrap):
+  h_enc vs video_only (best backbone)    Δ=+0.054 [+0.003,+0.103] p=0.0387
+  h_enc vs random_proj                   Δ=+0.078 [+0.020,+0.132] p=0.0120
+  h_enc vs h_proj (transformer)          Δ=+0.059 [+0.025,+0.092] p=0.0007
+  video_only vs random_proj              Δ=+0.024 [+0.005,+0.043] p=0.0100
