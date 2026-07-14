@@ -1,0 +1,42 @@
+E4 ladder attribution (235 concepts)
+
+stage                                   RSA↑human   coarse↑    fine↑
+----------------------------------------------------------------------
+concat_raw                                  0.133     0.850    0.749
+h_agg                                       0.287     0.825    0.654
+h_proj                                      0.287     0.825    0.654
+h_enc                                       0.355     0.810    0.614
+
+per-stage delta (attribution):
+stage                                          ΔRSA   Δcoarse    Δfine
+----------------------------------------------------------------------
+per-modality projection                      +0.154    -0.025   -0.095
+combiner + pos-embed                         +0.000    +0.000   +0.000
+transformer (temporal + cross-modal attn)    +0.068    -0.016   -0.040
+
+Human-alignment (RSA) gain concat_raw->h_enc = +0.222
+  projection stage: +0.154 (69% of gain)
+  transformer stage: +0.068 (31% of gain)
+
+{
+  "concat_raw": {
+    "rsa": 0.13285590906098046,
+    "coarse": 0.8504456654456654,
+    "fine": 0.7490824029771398
+  },
+  "h_agg": {
+    "rsa": 0.2869621088141561,
+    "coarse": 0.8254884004884004,
+    "fine": 0.6536342371079213
+  },
+  "h_proj": {
+    "rsa": 0.286962109025457,
+    "coarse": 0.8254884004884004,
+    "fine": 0.6536342371079213
+  },
+  "h_enc": {
+    "rsa": 0.35489954001007423,
+    "coarse": 0.80990638990639,
+    "fine": 0.6136820839978734
+  }
+}
